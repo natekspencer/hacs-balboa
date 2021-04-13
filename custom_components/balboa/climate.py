@@ -1,6 +1,6 @@
 """Support for Balboa Spa Wifi adaptor."""
 import math
-from typing import List
+from typing import Any, Callable, Dict, List, Optional
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
@@ -17,6 +17,7 @@ from homeassistant.components.climate.const import (
     SUPPORT_PRESET_MODE,
     SUPPORT_TARGET_TEMPERATURE,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     PRECISION_HALVES,
@@ -24,26 +25,31 @@ from homeassistant.const import (
     TEMP_CELSIUS,
     TEMP_FAHRENHEIT,
 )
+from homeassistant.core import HomeAssistant
 
 from . import BalboaEntity
 from .const import (
-    _LOGGER,
     CLIMATE,
     CLIMATE_SUPPORTED_FANSTATES,
     CLIMATE_SUPPORTED_MODES,
+    DOMAIN,
+    SPA,
 )
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: Callable
+) -> None:
     """Set up the spa climate device."""
-    async_add_entities([BalboaSpaClimate(hass, entry, CLIMATE)], True)
+    spa = hass.data[DOMAIN][entry.entry_id][SPA]
+    async_add_entities([BalboaSpaClimate(spa, entry, CLIMATE)], True)
 
 
 class BalboaSpaClimate(BalboaEntity, ClimateEntity):
     """Representation of a Balboa Spa Climate device."""
 
     @property
-    def supported_features(self):
+    def supported_features(self) -> int:
         """Return the list of supported features."""
         features = SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
 
@@ -100,7 +106,7 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
             return FAN_HIGH
 
     @property
-    def icon(self):
+    def icon(self) -> str:
         return "mdi:hot-tub"
 
     @property
@@ -116,7 +122,7 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
         return PRECISION_WHOLE
 
     @property
-    def temperature_unit(self):
+    def temperature_unit(self) -> str:
         """Return the unit of measurement, as defined by the API."""
         tscale = self._client.get_tempscale()
         if tscale == self._client.TSCALE_C:
@@ -124,12 +130,12 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
         return TEMP_FAHRENHEIT
 
     @property
-    def current_temperature(self):
+    def current_temperature(self) -> Optional[float]:
         """Return the current temperature."""
         return self._client.get_curtemp()
 
     @property
-    def target_temperature(self):
+    def target_temperature(self) -> float:
         """Return the target temperature we try to reach."""
         return self._client.get_settemp()
 
@@ -148,7 +154,7 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
         return self._client.tmax[trange][scale]
 
     @property
-    def preset_modes(self):
+    def preset_modes(self) -> List[str]:
         """Return the valid preset modes."""
         modes = [
             mode
@@ -161,18 +167,18 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
         return modes
 
     @property
-    def preset_mode(self):
+    def preset_mode(self) -> str:
         """Return current preset mode."""
         return self._client.get_heatmode(True)
 
     @property
-    def device_state_attributes(self):
+    def device_state_attributes(self) -> Dict[str, str]:
         """Return device specific state attributes."""
         return {
             "time": f"{self._client.time_hour:02d}:{self._client.time_minute:02d}",
         }
 
-    async def async_set_temperature(self, **kwargs):
+    async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""
         temperature = kwargs[ATTR_TEMPERATURE]
         spa_unit = self._client.get_tempscale()
@@ -183,13 +189,13 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
                 temperature = 0.5 * round(temperature / 0.5)
         await self._client.send_temp_change(temperature)
 
-    async def async_set_preset_mode(self, preset_mode) -> None:
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
         modelist = self._client.get_heatmode_stringlist()
         if preset_mode in modelist:
             await self._client.change_heatmode(modelist.index(preset_mode))
 
-    async def async_set_fan_mode(self, fan_mode):
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set new fan mode."""
         if fan_mode == FAN_OFF:
             await self._client.change_blower(self._client.BLOWER_OFF)
@@ -200,7 +206,7 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
         elif fan_mode == FAN_HIGH:
             await self._client.change_blower(self._client.BLOWER_HIGH)
 
-    async def async_set_hvac_mode(self, hvac_mode):
+    async def async_set_hvac_mode(self, hvac_mode: str) -> None:
         """Set new target hvac mode.
 
         OFF = Rest
@@ -212,7 +218,7 @@ class BalboaSpaClimate(BalboaEntity, ClimateEntity):
         else:
             await self._client.change_heatmode(self._client.HEATMODE_REST)
 
-    def get_temp_unit(self):
+    def get_temp_unit(self) -> int:
         """Return the balboa equivalent temperature unit of the system."""
         if self.hass.config.units.temperature_unit == TEMP_CELSIUS:
             return self._client.TSCALE_C

@@ -2,7 +2,7 @@
 from homeassistant.components.switch import DEVICE_CLASS_SWITCH, SwitchEntity
 
 from . import BalboaEntity
-from .const import _LOGGER, AUX, DOMAIN, LIGHT, MISTER, SPA, TEMP_RANGE
+from .const import AUX, DOMAIN, LIGHT, MISTER, SPA, TEMP_RANGE
 
 CHANGE_FUNCTION = "change"
 GET_FUNCTION = "get"
@@ -11,19 +11,19 @@ GET_FUNCTION = "get"
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the spa switch devices."""
     spa = hass.data[DOMAIN][entry.entry_id][SPA]
-    devs = []
+    entities = []
 
-    devs.append(BalboaSpaSwitch(hass, entry, TEMP_RANGE))
+    entities.append(BalboaSpaSwitch(spa, entry, TEMP_RANGE))
     for num, value in enumerate(spa.light_array, 1):
         if value:
-            devs.append(BalboaSpaSwitch(hass, entry, LIGHT, num))
+            entities.append(BalboaSpaSwitch(spa, entry, LIGHT, num))
     for num, value in enumerate(spa.aux_array, 1):
         if value:
-            devs.append(BalboaSpaSwitch(hass, entry, AUX, num))
+            entities.append(BalboaSpaSwitch(spa, entry, AUX, num))
     if spa.have_mister():
-        devs.append(BalboaSpaSwitch(hass, entry, MISTER))
+        entities.append(BalboaSpaSwitch(spa, entry, MISTER))
 
-    async_add_entities(devs, True)
+    async_add_entities(entities, True)
 
 
 class BalboaSpaSwitch(BalboaEntity, SwitchEntity):

@@ -1,11 +1,11 @@
 """Config flow for Balboa Spa Client integration."""
 from typing import Any, Dict, Optional
 
-import voluptuous as vol
 from homeassistant import config_entries, core, exceptions
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import callback
 from pybalboa import BalboaSpaWifi
+import voluptuous as vol
 
 from .const import _LOGGER, CONF_SYNC_TIME, DOMAIN
 
@@ -14,7 +14,9 @@ DATA_SCHEMA = vol.Schema(
 )
 
 
-async def validate_input(hass: core.HomeAssistant, data):
+async def validate_input(
+    hass: core.HomeAssistant, data: Dict[str, Any]
+) -> Dict[str, Any]:
     """Validate the user input allows us to connect."""
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.data[CONF_HOST] == data[CONF_HOST]:
@@ -39,11 +41,13 @@ class BalboaSpaClientFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         """Get the options flow for this handler."""
         return BalboaSpaClientOptionsFlowHandler(config_entry)
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
         """Handle a flow initialized by the user."""
         errors = {}
         if user_input is not None:
@@ -74,7 +78,7 @@ class AlreadyConfigured(exceptions.HomeAssistantError):
 class BalboaSpaClientOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle Balboa Spa Client options."""
 
-    def __init__(self, config_entry):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize Balboa Spa Client options flow."""
         self.config_entry = config_entry
 

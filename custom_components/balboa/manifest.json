@@ -1,17 +1,10 @@
 {
   "domain": "balboa",
   "name": "Balboa Spa Client",
+  "version": "2021.4.0",
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/balboa",
-  "requirements": [
-    "pybalboa==0.13"
-  ],
-  "ssdp": [],
-  "zeroconf": [],
-  "homekit": {},
-  "dependencies": [],
-  "codeowners": [
-    "@garbled1",
-    "@natekspencer"
-  ]
+  "requirements": ["pybalboa==0.13"],
+  "codeowners": ["@garbled1", "@natekspencer"],
+  "dhcp": [{ "macaddress": "001527*" }]
 }

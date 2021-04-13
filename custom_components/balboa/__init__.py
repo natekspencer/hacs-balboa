@@ -1,22 +1,22 @@
 """The Balboa Spa Client integration."""
 import asyncio
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-import homeassistant.helpers.config_validation as cv
-import homeassistant.util.dt as dt_util
-import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
+import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
 from homeassistant.helpers.entity import Entity
+import homeassistant.util.dt as dt_util
 from pybalboa import BalboaSpaWifi
+import voluptuous as vol
 
 from .const import (
     _LOGGER,
@@ -37,7 +37,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: dict):
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Configure the Balboa Spa Client component using flow only."""
     hass.data[DOMAIN] = {}
 
@@ -51,13 +51,13 @@ async def async_setup(hass: HomeAssistant, config: dict):
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Balboa Spa from a config entry."""
     host = entry.data[CONF_HOST]
 
     unsub = entry.add_update_listener(update_listener)
 
-    _LOGGER.info("Attempting to connect to %s", host)
+    _LOGGER.debug("Attempting to connect to %s", host)
     spa = BalboaSpaWifi(host)
     hass.data[DOMAIN][entry.entry_id] = {SPA: spa, UNSUB: unsub}
 
@@ -71,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await spa.send_panel_req(0, 1)
     # configured = await spa.listen_until_configured()
 
-    _LOGGER.info("Starting listener and monitor tasks.")
+    _LOGGER.debug("Starting listener and monitor tasks.")
     hass.loop.create_task(spa.listen())
     await spa.spa_configured()
     hass.loop.create_task(spa.check_connection_status())
@@ -81,9 +81,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     for component in PLATFORMS:
         hass.async_create_task(forward_setup(entry, component))
 
-    async def _async_balboa_update_cb():
+    async def _async_balboa_update_cb() -> None:
         """Primary update callback called from pybalboa."""
-        _LOGGER.debug("Primary update callback triggered")
         async_dispatcher_send(hass, DOMAIN)
 
     spa.new_data_cb = _async_balboa_update_cb
@@ -94,7 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
 
     _LOGGER.info("Disconnecting from spa")
@@ -118,13 +117,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     return unload_ok
 
 
-async def update_listener(hass, entry):
+async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
     if entry.options.get(CONF_SYNC_TIME, DEFAULT_SYNC_TIME):
         _LOGGER.info("Setting up daily time sync.")
         spa = hass.data[DOMAIN][entry.entry_id][SPA]
 
-        async def sync_time():
+        async def sync_time() -> None:
+            """Sync time of spa with Home Assistant."""
             while entry.options.get(CONF_SYNC_TIME, DEFAULT_SYNC_TIME):
                 _LOGGER.info("Syncing time with Home Assistant.")
                 await spa.set_time(
@@ -144,16 +144,22 @@ class BalboaEntity(Entity):
     accessors.
     """
 
-    def __init__(self, hass, entry, type, num=None):
+    def __init__(
+        self,
+        client: BalboaSpaWifi,
+        entry: ConfigEntry,
+        type: str,
+        num: Optional[int] = None,
+    ) -> None:
         """Initialize the spa entity."""
-        self.hass = hass
-        self._client = hass.data[DOMAIN][entry.entry_id][SPA]
+        self.config_entry = entry
+        self._client = client
         self._device_name = entry.data[CONF_NAME]
         self._type = type
         self._num = num
 
     @property
-    def name(self):
+    def name(self) -> str:
         """Return the name of the entity."""
         return f'{self._device_name}: {self._type}{self._num or ""}'
 
@@ -164,7 +170,6 @@ class BalboaEntity(Entity):
     @callback
     def _update_callback(self) -> None:
         """Call from dispatcher when state changes."""
-        _LOGGER.debug(f"Updating {self.name} state with new data.")
         self.async_schedule_update_ha_state(force_refresh=True)
 
     @property
@@ -173,7 +178,7 @@ class BalboaEntity(Entity):
         return False
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         """Set unique_id for this entity."""
         return f'{self._device_name}-{self._type}{self._num or ""}-{self._client.get_macaddr().replace(":","")[-6:]}'
 
