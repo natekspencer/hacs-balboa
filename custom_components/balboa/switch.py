@@ -1,95 +1,64 @@
 """Support for Balboa Spa switches."""
-from homeassistant.components.switch import DEVICE_CLASS_SWITCH, SwitchEntity
+from __future__ import annotations
 
-from . import BalboaEntity
-from .const import AUX, DOMAIN, LIGHT, MISTER, SPA, TEMP_RANGE
+from typing import Any
 
-CHANGE_FUNCTION = "change"
-GET_FUNCTION = "get"
+from pybalboa import SpaClient
+
+from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import DOMAIN
+from .entity import BalboaControlEntity, BalboaEntity
 
 
-async def async_setup_entry(hass, entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+):
     """Set up the spa switch devices."""
-    spa = hass.data[DOMAIN][entry.entry_id][SPA]
-    entities = []
-
-    entities.append(BalboaSpaSwitch(spa, entry, TEMP_RANGE))
-    for num, value in enumerate(spa.light_array, 1):
-        if value:
-            entities.append(BalboaSpaSwitch(spa, entry, LIGHT, num))
-    for num, value in enumerate(spa.aux_array, 1):
-        if value:
-            entities.append(BalboaSpaSwitch(spa, entry, AUX, num))
-    if spa.have_mister():
-        entities.append(BalboaSpaSwitch(spa, entry, MISTER))
-
-    async_add_entities(entities, True)
+    spa: SpaClient = hass.data[DOMAIN][entry.entry_id]
+    entities=[BalboaFilterSwitchEntity(spa,"Filter cycle 2 enabled")]
+    entities.extend(BalboaSwitchEntity(control) for control in (*spa.aux, *spa.misters))
+    async_add_entities(entities)
 
 
-class BalboaSpaSwitch(BalboaEntity, SwitchEntity):
-    """Representation of a Balboa Spa switch device."""
+class BalboaSwitchEntity(BalboaControlEntity, SwitchEntity):
+    """Representation of a Balboa switch entity."""
 
-    @property
-    def type_functions(self):
-        """Get the appropriate function for the type of switch"""
-        return {
-            AUX: {
-                GET_FUNCTION: self._client.get_aux,
-                CHANGE_FUNCTION: self._client.change_aux,
-            },
-            LIGHT: {
-                GET_FUNCTION: self._client.get_light,
-                CHANGE_FUNCTION: self._client.change_light,
-            },
-            MISTER: {
-                GET_FUNCTION: self._client.get_mister,
-                CHANGE_FUNCTION: self._client.change_mister,
-            },
-            TEMP_RANGE: {
-                GET_FUNCTION: self._client.get_temprange,
-                CHANGE_FUNCTION: self._client.change_temprange,
-            },
-        }
+    _attr_device_class = SwitchDeviceClass.SWITCH
 
     @property
     def is_on(self) -> bool:
-        """Return True if the switch is on."""
-        key = self._num - 1 if self._num else None
-        return self.type_functions[self._type][GET_FUNCTION](key)
+        """Return True if entity is on."""
+        return self._control.state > 0
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the entity on."""
+        await self._control.set_state(1)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the entity off."""
+        await self._control.set_state(0)
+
+
+class BalboaFilterSwitchEntity(BalboaEntity, SwitchEntity):
+    """Representation of a Balboa filter switch entity."""
+
+    _attr_device_class = SwitchDeviceClass.SWITCH
+    _attr_entity_category = EntityCategory.CONFIG
 
     @property
-    def device_class(self):
-        """Return the class of this device, from component DEVICE_CLASSES."""
-        return DEVICE_CLASS_SWITCH
+    def is_on(self) -> bool:
+        """Return True if entity is on."""
+        return self._client.filter_cycle_2_enabled
 
-    @property
-    def icon(self):
-        """Return the icon to use in the frontend, if any."""
-        if self._type == LIGHT:
-            return "mdi:lightbulb" if self.is_on else "mdi:lightbulb-off"
-        elif self._type == MISTER:
-            return "mdi:weather-fog"
-        elif self._type == TEMP_RANGE:
-            return "mdi:thermometer-plus" if self.is_on else "mdi:thermometer-minus"
-        else:
-            return "mdi:flash"
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the entity on."""
+        await self._client.set_filter_cycle(filter_cycle_2_enabled=True)
 
-    async def async_turn_off(self, **kwargs):
-        """Turn off the switch."""
-        new_state = (
-            self._client.TEMPRANGE_LOW if self._type == TEMP_RANGE else self._client.OFF
-        )
-        return await self.change_switch(new_state)
-
-    async def async_turn_on(self, **kwargs):
-        """Turn on the switch."""
-        new_state = (
-            self._client.TEMPRANGE_HIGH if self._type == TEMP_RANGE else self._client.ON
-        )
-        return await self.change_switch(new_state)
-
-    async def change_switch(self, new_state=None):
-        key = self._num - 1 if self._num else None
-        return await self.type_functions[self._type][CHANGE_FUNCTION](
-            *[v for v in [key, new_state] if v is not None]
-        )
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the entity off."""
+        await self._client.set_filter_cycle(filter_cycle_2_enabled=False)

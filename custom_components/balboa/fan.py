@@ -1,97 +1,81 @@
 """Support for Balboa Spa Pumps."""
 from __future__ import annotations
 
-import math
-from typing import Any, Callable, List, Optional
+from typing import Any
 
-from homeassistant.components.fan import SUPPORT_SET_SPEED, FanEntity
+from pybalboa import SpaClient, SpaControl
+
+from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.percentage import (
-    int_states_in_range,
-    percentage_to_ranged_value,
-    ranged_value_to_percentage,
+    ordered_list_item_to_percentage,
+    percentage_to_ordered_list_item,
 )
-from pybalboa import BalboaSpaWifi
 
-from . import BalboaEntity
-from .const import _LOGGER, DOMAIN, PUMP, SPA
+from .const import DOMAIN
+from .entity import BalboaControlEntity
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: Callable[[List[Entity], bool], None],
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the spa's pumps as FAN entities."""
-    spa: BalboaSpaWifi = hass.data[DOMAIN][entry.entry_id][SPA]
-    entities = []
-
-    for key, value in enumerate(spa.pump_array, 1):
-        if value:
-            entities.append(BalboaSpaPump(spa, entry, key, value))
-
-    if entities:
-        async_add_entities(entities, True)
+    spa: SpaClient = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities(BalboaPumpEntity(pump) for pump in spa.pumps)
 
 
-class BalboaSpaPump(BalboaEntity, FanEntity):
-    """Representation of a Balboa Spa pump device."""
+class BalboaPumpEntity(BalboaControlEntity, FanEntity):
+    """Balboa spa pump entity."""
 
-    def __init__(
-        self, client: BalboaSpaWifi, entry: ConfigEntry, key: str, states: int
-    ) -> None:
+    _attr_icon = "mdi:hydro-power"
+
+    def __init__(self, pump: SpaControl) -> None:
         """Initialize the pump."""
-        super().__init__(client, entry, PUMP, key)
-        self._supported_features = SUPPORT_SET_SPEED if states > 1 else 0
-        self._speed_range = (1, states)
+        super().__init__(pump)
+        if max(pump.options) > 1:
+            self._attr_supported_features |= FanEntityFeature.SET_SPEED
 
-    async def async_set_percentage(self, percentage: Optional[int]) -> None:
-        """Set the speed percentage of the pump."""
-        if percentage is None:
-            setto = self._speed_range[0]
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Set the speed of the pump, as a percentage."""
+        if percentage == 0:
+            state = self._control.options[0]
         else:
-            setto = math.ceil(percentage_to_ranged_value(self._speed_range, percentage))
-        await self._client.change_pump(self._num - 1, setto)
+            state = percentage_to_ordered_list_item(
+                self._control.options[1:], percentage
+            )
+        await self._control.set_state(state)
 
     async def async_turn_on(
         self,
-        speed: Optional[str] = None,
-        percentage: Optional[int] = None,
-        preset_mode: Optional[str] = None,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Turn on the pump."""
+        if percentage is None:
+            percentage = 1
         await self.async_set_percentage(percentage)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the pump."""
         await self.async_set_percentage(0)
 
     @property
-    def supported_features(self) -> int:
-        """Flag supported features."""
-        return self._supported_features
-
-    @property
     def speed_count(self) -> int:
         """Return the number of speeds the pump supports."""
-        return int_states_in_range(self._speed_range)
+        return max(self._control.options)
 
     @property
-    def percentage(self) -> Optional[int]:
+    def percentage(self) -> int | None:
         """Return the current speed percentage."""
-        return ranged_value_to_percentage(
-            self._speed_range, self._client.get_pump(self._num - 1)
-        )
+        if self._control.state > 0:
+            return ordered_list_item_to_percentage(
+                self._control.options[1:], self._control.state
+            )
 
     @property
     def is_on(self) -> bool:
         """Return true if the pump is on."""
-        return bool(self._client.get_pump(self._num - 1))
-
-    @property
-    def icon(self) -> str:
-        """Return the icon to use in the frontend, if any."""
-        return "mdi:hydro-power"
+        return self._control.state > 0
