@@ -1,36 +1,40 @@
 """Config flow for Balboa Spa Client integration."""
-from typing import Any, Dict, Optional
+from __future__ import annotations
 
-from homeassistant import config_entries, core, exceptions
-from homeassistant.const import CONF_HOST, CONF_NAME
-from homeassistant.core import callback
-from pybalboa import BalboaSpaWifi
+import logging
+from typing import Any
+
+from pybalboa import SpaClient
+from pybalboa.exceptions import SpaConnectionError
 import voluptuous as vol
 
-from .const import _LOGGER, CONF_SYNC_TIME, DOMAIN
+from homeassistant import config_entries, exceptions
+from homeassistant.components.dhcp import DhcpServiceInfo
+from homeassistant.const import CONF_HOST
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.device_registry import format_mac
 
-DATA_SCHEMA = vol.Schema(
-    {vol.Required(CONF_HOST): str, vol.Required(CONF_NAME, default="Spa"): str}
-)
+from .const import CONF_SYNC_TIME, DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+DATA_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str})
 
 
-async def validate_input(
-    hass: core.HomeAssistant, data: Dict[str, Any]
-) -> Dict[str, Any]:
+async def validate_input(data: dict[str, Any]) -> dict[str, str]:
     """Validate the user input allows us to connect."""
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.data[CONF_HOST] == data[CONF_HOST]:
-            raise AlreadyConfigured
-
     _LOGGER.debug("Attempting to connect to %s", data[CONF_HOST])
-    spa = BalboaSpaWifi(data[CONF_HOST])
-    connected = await spa.connect()
-    _LOGGER.debug("Got connected = %d", connected)
-    if not connected:
-        raise CannotConnect
-    await spa.disconnect()
+    try:
+        async with SpaClient(data[CONF_HOST]) as spa:
+            if not await spa.async_configuration_loaded():
+                raise CannotConnect
+            mac = format_mac(spa.mac_address)
+            model = spa.model
+    except SpaConnectionError as err:
+        raise CannotConnect from err
 
-    return {"title": data[CONF_NAME]}
+    return {"title": model, "formatted_mac": mac}
 
 
 class BalboaSpaClientFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
@@ -39,28 +43,53 @@ class BalboaSpaClientFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
 
+    _host: str | None
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         """Get the options flow for this handler."""
         return BalboaSpaClientOptionsFlowHandler(config_entry)
 
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> FlowResult:
+        """Handle dhcp discovery."""
+        _LOGGER.debug("Balboa device found via DHCP: %s", discovery_info)
+        await self.async_set_unique_id(format_mac(discovery_info.macaddress))
+        self._abort_if_unique_id_configured(updates={CONF_HOST: discovery_info.ip})
+        self._host = discovery_info.ip
+        return await self.async_step_confirm()
+
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle user-confirmation of discovered Balboa spa."""
+        _LOGGER.debug("Confirm Balboa device found via DHCP: %s", user_input)
+        if user_input is not None:
+            return await self.async_step_user({CONF_HOST: self._host})
+
+        return self.async_show_form(
+            step_id="confirm", description_placeholders={"device": self._host}
+        )
+
     async def async_step_user(
-        self, user_input: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Handle a flow initialized by the user."""
         errors = {}
         if user_input is not None:
+            self._async_abort_entries_match({CONF_HOST: user_input[CONF_HOST]})
             try:
-                info = await validate_input(self.hass, user_input)
-                return self.async_create_entry(title=info["title"], data=user_input)
-            except AlreadyConfigured:
-                return self.async_abort(reason="already_configured")
+                info = await validate_input(user_input)
+                _LOGGER.debug("Balboa validated input: %s", user_input)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
+            else:
+                await self.async_set_unique_id(info["formatted_mac"])
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(title=info["title"], data=user_input)
 
         return self.async_show_form(
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
@@ -71,10 +100,6 @@ class CannotConnect(exceptions.HomeAssistantError):
     """Error to indicate we cannot connect."""
 
 
-class AlreadyConfigured(exceptions.HomeAssistantError):
-    """Error to indicate this device is already configured."""
-
-
 class BalboaSpaClientOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle Balboa Spa Client options."""
 
@@ -83,8 +108,8 @@ class BalboaSpaClientOptionsFlowHandler(config_entries.OptionsFlow):
         self.config_entry = config_entry
 
     async def async_step_init(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Manage Balboa Spa Client options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
