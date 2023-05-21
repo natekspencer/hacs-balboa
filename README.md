@@ -1,4 +1,10 @@
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
+![Release](https://img.shields.io/github/v/release/natekspencer/hacs-balboa?style=for-the-badge)
+[![Buy Me A Coffee/Beer](https://img.shields.io/badge/Buy_Me_A_☕/🍺-F16061?style=for-the-badge&logo=ko-fi&logoColor=white&labelColor=grey)](https://ko-fi.com/natekspencer)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://brands.home-assistant.io/balboa/dark_logo.png">
+  <img alt="Balboa logo" src="https://brands.home-assistant.io/balboa/logo.png">
+</picture>
 
 # Balboa Spa Client integration for home-assistant
 Home assistant integration for a spa equipped with a Balboa BP system and a
